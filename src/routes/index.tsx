@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { FileAudio, Upload, Copy, Check, Loader2, Wand2 } from "lucide-react";
+import { FileAudio, Upload, Copy, Check, Loader2, Wand2, FileText, X } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
