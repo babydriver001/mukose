@@ -7,7 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { FileAudio, Upload, Copy, Check, Loader2, Wand2 } from "lucide-react";
+import { FileAudio, Upload, Copy, Check, Loader2, Wand2, FileText, X } from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -55,14 +55,20 @@ function Index() {
   const transcribe = useServerFn(transcribeMedia);
   const [file, setFile] = useState<File | null>(null);
   const [styleGuide, setStyleGuide] = useState("");
+  const [styleGuidePdf, setStyleGuidePdf] = useState<File | null>(null);
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
 
   const sizeOk = useMemo(() => !file || file.size <= MAX_BYTES, [file]);
+  const pdfSizeOk = useMemo(
+    () => !styleGuidePdf || styleGuidePdf.size <= MAX_BYTES,
+    [styleGuidePdf],
+  );
 
   const handleFile = (f: File | null | undefined) => {
     if (!f) return;
@@ -75,6 +81,16 @@ function Index() {
     setFile(f);
   };
 
+  const handlePdf = (f: File | null | undefined) => {
+    if (!f) return;
+    setError(null);
+    if (f.type !== "application/pdf" && !f.name.toLowerCase().endsWith(".pdf")) {
+      setError("Style guide must be a PDF.");
+      return;
+    }
+    setStyleGuidePdf(f);
+  };
+
   const onSubmit = useCallback(async () => {
     if (!file) {
       setError("Add an audio or video file first.");
@@ -84,16 +100,25 @@ function Index() {
       setError(`File is too large. Max ${formatBytes(MAX_BYTES)}.`);
       return;
     }
+    if (!pdfSizeOk) {
+      setError(`Style guide PDF is too large. Max ${formatBytes(MAX_BYTES)}.`);
+      return;
+    }
     setLoading(true);
     setError(null);
     setTranscript("");
     try {
       const fileBase64 = await fileToBase64(file);
+      const styleGuidePdfBase64 = styleGuidePdf
+        ? await fileToBase64(styleGuidePdf)
+        : undefined;
       const res = await transcribe({
         data: {
           fileBase64,
           mediaType: file.type,
           styleGuide,
+          styleGuidePdfBase64,
+          styleGuidePdfName: styleGuidePdf?.name,
           fileName: file.name,
         },
       });
@@ -107,7 +132,7 @@ function Index() {
     } finally {
       setLoading(false);
     }
-  }, [file, sizeOk, styleGuide, transcribe]);
+  }, [file, sizeOk, pdfSizeOk, styleGuide, styleGuidePdf, transcribe]);
 
   const onCopy = async () => {
     if (!transcript) return;
@@ -211,12 +236,63 @@ function Index() {
               value={styleGuide}
               onChange={(e) => setStyleGuide(e.target.value)}
               placeholder="Describe tone, formatting rules, speaker labels, spelling preferences, what to omit…"
-              className="mt-3 h-[180px] resize-none"
+              className="mt-3 h-[140px] resize-none"
               maxLength={10000}
+              disabled={!!styleGuidePdf}
             />
             <p className="mt-2 text-xs text-muted-foreground">
-              Optional but recommended. {styleGuide.length}/10000
+              {styleGuidePdf
+                ? "Disabled — the attached PDF will be used as the style guide."
+                : `Optional but recommended. ${styleGuide.length}/10000`}
             </p>
+
+            <div className="mt-4 border-t pt-4">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Or upload a PDF style guide
+              </p>
+              {styleGuidePdf ? (
+                <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/40 px-3 py-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <FileText className="h-4 w-4 shrink-0 text-primary" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">
+                        {styleGuidePdf.name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatBytes(styleGuidePdf.size)}
+                        {!pdfSizeOk &&
+                          ` · too large (max ${formatBytes(MAX_BYTES)})`}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setStyleGuidePdf(null)}
+                    aria-label="Remove PDF"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => pdfInputRef.current?.click()}
+                  className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed px-3 py-3 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:bg-muted/50"
+                >
+                  <Upload className="h-4 w-4" />
+                  Upload PDF
+                </button>
+              )}
+              <input
+                ref={pdfInputRef}
+                type="file"
+                accept="application/pdf,.pdf"
+                className="hidden"
+                onChange={(e) => handlePdf(e.target.files?.[0])}
+              />
+            </div>
           </Card>
         </div>
 

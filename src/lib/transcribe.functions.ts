@@ -7,6 +7,8 @@ const inputSchema = z.object({
   fileBase64: z.string().min(1),
   mediaType: z.string().min(1).max(100),
   styleGuide: z.string().max(10000).default(""),
+  styleGuidePdfBase64: z.string().optional(),
+  styleGuidePdfName: z.string().max(255).optional(),
   fileName: z.string().max(255).optional(),
 });
 
@@ -25,9 +27,14 @@ export const transcribeMedia = createServerFn({ method: "POST" })
     const gateway = createLovableAiGatewayProvider(apiKey);
     const model = gateway("google/gemini-2.5-pro");
 
-    const styleInstructions = data.styleGuide.trim()
-      ? `Follow this style guide strictly when producing the transcript:\n\n${data.styleGuide.trim()}`
-      : "Produce a clean, faithful transcript with proper punctuation and paragraph breaks.";
+    const hasTextGuide = data.styleGuide.trim().length > 0;
+    const hasPdfGuide = !!data.styleGuidePdfBase64;
+
+    const styleInstructions = hasPdfGuide
+      ? "A style guide PDF is attached. Read it carefully and follow every rule it specifies when producing the transcript (tone, formatting, spelling, punctuation, what to omit, speaker labels, etc.)."
+      : hasTextGuide
+        ? `Follow this style guide strictly when producing the transcript:\n\n${data.styleGuide.trim()}`
+        : "Produce a clean, faithful transcript with proper punctuation and paragraph breaks.";
 
     const system = [
       "You are an expert transcriptionist.",
@@ -37,33 +44,45 @@ export const transcribeMedia = createServerFn({ method: "POST" })
       styleInstructions,
     ].join("\n\n");
 
-    let buffer: Buffer;
+    let mediaBuffer: Buffer;
+    let pdfBuffer: Buffer | null = null;
     try {
-      buffer = Buffer.from(data.fileBase64, "base64");
+      mediaBuffer = Buffer.from(data.fileBase64, "base64");
+      if (data.styleGuidePdfBase64) {
+        pdfBuffer = Buffer.from(data.styleGuidePdfBase64, "base64");
+      }
     } catch {
       return { ok: false as const, error: "Invalid file encoding." };
+    }
+
+    const userContent: Array<
+      | { type: "text"; text: string }
+      | { type: "file"; data: Buffer; mediaType: string }
+    > = [
+      {
+        type: "text",
+        text: `Transcribe this ${data.mediaType.startsWith("video") ? "video" : "audio"} file${data.fileName ? ` (${data.fileName})` : ""}${hasPdfGuide ? `, strictly following the attached style guide PDF${data.styleGuidePdfName ? ` (${data.styleGuidePdfName})` : ""}` : " following the style guide"}.`,
+      },
+      {
+        type: "file",
+        data: mediaBuffer,
+        mediaType: data.mediaType,
+      },
+    ];
+
+    if (pdfBuffer) {
+      userContent.push({
+        type: "file",
+        data: pdfBuffer,
+        mediaType: "application/pdf",
+      });
     }
 
     try {
       const { text } = await generateText({
         model,
         system,
-        messages: [
-          {
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: `Transcribe this ${data.mediaType.startsWith("video") ? "video" : "audio"} file${data.fileName ? ` (${data.fileName})` : ""} following the style guide.`,
-              },
-              {
-                type: "file",
-                data: buffer,
-                mediaType: data.mediaType,
-              },
-            ],
-          },
-        ],
+        messages: [{ role: "user", content: userContent }],
       });
 
       return { ok: true as const, transcript: text };
