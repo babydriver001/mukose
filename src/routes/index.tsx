@@ -55,14 +55,20 @@ function Index() {
   const transcribe = useServerFn(transcribeMedia);
   const [file, setFile] = useState<File | null>(null);
   const [styleGuide, setStyleGuide] = useState("");
+  const [styleGuidePdf, setStyleGuidePdf] = useState<File | null>(null);
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
 
   const sizeOk = useMemo(() => !file || file.size <= MAX_BYTES, [file]);
+  const pdfSizeOk = useMemo(
+    () => !styleGuidePdf || styleGuidePdf.size <= MAX_BYTES,
+    [styleGuidePdf],
+  );
 
   const handleFile = (f: File | null | undefined) => {
     if (!f) return;
