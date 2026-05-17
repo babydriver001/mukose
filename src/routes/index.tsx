@@ -81,6 +81,16 @@ function Index() {
     setFile(f);
   };
 
+  const handlePdf = (f: File | null | undefined) => {
+    if (!f) return;
+    setError(null);
+    if (f.type !== "application/pdf" && !f.name.toLowerCase().endsWith(".pdf")) {
+      setError("Style guide must be a PDF.");
+      return;
+    }
+    setStyleGuidePdf(f);
+  };
+
   const onSubmit = useCallback(async () => {
     if (!file) {
       setError("Add an audio or video file first.");
@@ -90,16 +100,25 @@ function Index() {
       setError(`File is too large. Max ${formatBytes(MAX_BYTES)}.`);
       return;
     }
+    if (!pdfSizeOk) {
+      setError(`Style guide PDF is too large. Max ${formatBytes(MAX_BYTES)}.`);
+      return;
+    }
     setLoading(true);
     setError(null);
     setTranscript("");
     try {
       const fileBase64 = await fileToBase64(file);
+      const styleGuidePdfBase64 = styleGuidePdf
+        ? await fileToBase64(styleGuidePdf)
+        : undefined;
       const res = await transcribe({
         data: {
           fileBase64,
           mediaType: file.type,
           styleGuide,
+          styleGuidePdfBase64,
+          styleGuidePdfName: styleGuidePdf?.name,
           fileName: file.name,
         },
       });
@@ -113,7 +132,7 @@ function Index() {
     } finally {
       setLoading(false);
     }
-  }, [file, sizeOk, styleGuide, transcribe]);
+  }, [file, sizeOk, pdfSizeOk, styleGuide, styleGuidePdf, transcribe]);
 
   const onCopy = async () => {
     if (!transcript) return;
