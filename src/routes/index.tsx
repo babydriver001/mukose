@@ -157,17 +157,13 @@ function Index() {
     setUploadPct(0);
     try {
       setStage("uploading-media");
-      const mediaUrl = await uploadToStorage(file, (p) =>
-        setUploadPct(typeof p === "function" ? p : p),
-      );
+      const mediaUrl = await uploadToStorage(file, setUploadPct);
 
       let styleGuidePdfUrl: string | undefined;
       if (styleGuidePdf) {
         setStage("uploading-pdf");
         setUploadPct(0);
-        styleGuidePdfUrl = await uploadToStorage(styleGuidePdf, (p) =>
-          setUploadPct(typeof p === "function" ? p : p),
-        );
+        styleGuidePdfUrl = await uploadToStorage(styleGuidePdf, setUploadPct);
       }
 
       setStage("transcribing");
