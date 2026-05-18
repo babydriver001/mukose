@@ -98,6 +98,7 @@ function Index() {
   const [styleGuide, setStyleGuide] = useState("");
   const [styleGuidePdf, setStyleGuidePdf] = useState<File | null>(null);
   const [transcript, setTranscript] = useState("");
+  const [analysis, setAnalysis] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<
     "idle" | "uploading-media" | "uploading-pdf" | "transcribing"
@@ -105,6 +106,7 @@ function Index() {
   const [uploadPct, setUploadPct] = useState(0);
   const [copied, setCopied] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [showAnalysis, setShowAnalysis] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
@@ -154,6 +156,7 @@ function Index() {
     }
     setError(null);
     setTranscript("");
+    setAnalysis(null);
     setUploadPct(0);
     try {
       setStage("uploading-media");
@@ -181,6 +184,7 @@ function Index() {
         setError(res.error);
       } else {
         setTranscript(res.transcript);
+        setAnalysis(res.styleGuideAnalysis ?? null);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
@@ -203,7 +207,9 @@ function Index() {
       : stage === "uploading-pdf"
         ? "Uploading style guide…"
         : stage === "transcribing"
-          ? "Transcribing — analyzing the full file…"
+          ? styleGuidePdf
+            ? "Reading the style guide page by page, then transcribing — this can take several minutes…"
+            : "Transcribing — analysing the full file…"
           : "";
 
   return (
@@ -422,6 +428,28 @@ function Index() {
             <div className="whitespace-pre-wrap rounded-md bg-muted/40 p-4 text-sm leading-relaxed">
               {transcript}
             </div>
+          </Card>
+        )}
+
+        {analysis && (
+          <Card className="mt-4 p-6">
+            <button
+              type="button"
+              onClick={() => setShowAnalysis((v) => !v)}
+              className="flex w-full items-center justify-between text-left"
+            >
+              <h2 className="text-sm font-medium">
+                Style-guide analysis (page-by-page working spec)
+              </h2>
+              <span className="text-xs text-muted-foreground">
+                {showAnalysis ? "Hide" : "Show"}
+              </span>
+            </button>
+            {showAnalysis && (
+              <div className="mt-3 max-h-[480px] overflow-auto whitespace-pre-wrap rounded-md bg-muted/40 p-4 text-xs leading-relaxed">
+                {analysis}
+              </div>
+            )}
           </Card>
         )}
       </div>
