@@ -430,6 +430,28 @@ function Index() {
             </div>
           </Card>
         )}
+
+        {analysis && (
+          <Card className="mt-4 p-6">
+            <button
+              type="button"
+              onClick={() => setShowAnalysis((v) => !v)}
+              className="flex w-full items-center justify-between text-left"
+            >
+              <h2 className="text-sm font-medium">
+                Style-guide analysis (page-by-page working spec)
+              </h2>
+              <span className="text-xs text-muted-foreground">
+                {showAnalysis ? "Hide" : "Show"}
+              </span>
+            </button>
+            {showAnalysis && (
+              <div className="mt-3 max-h-[480px] overflow-auto whitespace-pre-wrap rounded-md bg-muted/40 p-4 text-xs leading-relaxed">
+                {analysis}
+              </div>
+            )}
+          </Card>
+        )}
       </div>
     </main>
   );
