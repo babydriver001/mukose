@@ -2,12 +2,23 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { transcribeMedia } from "@/lib/transcribe.functions";
+import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { FileAudio, Upload, Copy, Check, Loader2, Wand2, FileText, X } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import {
+  FileAudio,
+  Upload,
+  Copy,
+  Check,
+  Loader2,
+  Wand2,
+  FileText,
+  X,
+} from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -16,14 +27,15 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Upload an audio or video file with a style guide and get a clean, on-brand transcript powered by AI.",
+          "Upload audio or video (up to 500MB) plus a PDF style guide and get a thorough, on-brand transcript powered by AI.",
       },
     ],
   }),
   component: Index,
 });
 
-const MAX_BYTES = 18 * 1024 * 1024; // ~18MB — keep room for base64 overhead
+const BUCKET = "transcribe-uploads";
+const MAX_BYTES = 500 * 1024 * 1024; // 500 MB
 
 const EXAMPLE_STYLE = `• Use US English spelling.
 • Remove filler words (um, uh, like, you know).
@@ -32,23 +44,52 @@ const EXAMPLE_STYLE = `• Use US English spelling.
 • Spell out numbers under 10; use digits for 10+.
 • Use the Oxford comma.`;
 
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const base64 = result.split(",")[1] ?? "";
-      resolve(base64);
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
-
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024)
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
+function randomKey(file: File) {
+  const ext = file.name.includes(".")
+    ? file.name.slice(file.name.lastIndexOf("."))
+    : "";
+  const id =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${id}${ext}`;
+}
+
+async function uploadToStorage(
+  file: File,
+  onProgress: (pct: number) => void,
+): Promise<string> {
+  const key = randomKey(file);
+  // supabase-js v2 upload doesn't expose granular progress; show an indeterminate climb then jump to 100.
+  let pct = 5;
+  onProgress(pct);
+  const tick = setInterval(() => {
+    pct = Math.min(pct + 3, 90);
+    onProgress(pct);
+  }, 400);
+  try {
+    const { error } = await supabase.storage
+      .from(BUCKET)
+      .upload(key, file, {
+        cacheControl: "3600",
+        upsert: false,
+        contentType: file.type || undefined,
+      });
+    if (error) throw error;
+  } finally {
+    clearInterval(tick);
+  }
+  onProgress(100);
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(key);
+  return data.publicUrl;
 }
 
 function Index() {
@@ -58,12 +99,16 @@ function Index() {
   const [styleGuidePdf, setStyleGuidePdf] = useState<File | null>(null);
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [stage, setStage] = useState<
+    "idle" | "uploading-media" | "uploading-pdf" | "transcribing"
+  >("idle");
+  const [uploadPct, setUploadPct] = useState(0);
   const [copied, setCopied] = useState(false);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
+  const loading = stage !== "idle";
   const sizeOk = useMemo(() => !file || file.size <= MAX_BYTES, [file]);
   const pdfSizeOk = useMemo(
     () => !styleGuidePdf || styleGuidePdf.size <= MAX_BYTES,
@@ -84,7 +129,10 @@ function Index() {
   const handlePdf = (f: File | null | undefined) => {
     if (!f) return;
     setError(null);
-    if (f.type !== "application/pdf" && !f.name.toLowerCase().endsWith(".pdf")) {
+    if (
+      f.type !== "application/pdf" &&
+      !f.name.toLowerCase().endsWith(".pdf")
+    ) {
       setError("Style guide must be a PDF.");
       return;
     }
@@ -104,22 +152,29 @@ function Index() {
       setError(`Style guide PDF is too large. Max ${formatBytes(MAX_BYTES)}.`);
       return;
     }
-    setLoading(true);
     setError(null);
     setTranscript("");
+    setUploadPct(0);
     try {
-      const fileBase64 = await fileToBase64(file);
-      const styleGuidePdfBase64 = styleGuidePdf
-        ? await fileToBase64(styleGuidePdf)
-        : undefined;
+      setStage("uploading-media");
+      const mediaUrl = await uploadToStorage(file, setUploadPct);
+
+      let styleGuidePdfUrl: string | undefined;
+      if (styleGuidePdf) {
+        setStage("uploading-pdf");
+        setUploadPct(0);
+        styleGuidePdfUrl = await uploadToStorage(styleGuidePdf, setUploadPct);
+      }
+
+      setStage("transcribing");
       const res = await transcribe({
         data: {
-          fileBase64,
+          mediaUrl,
           mediaType: file.type,
-          styleGuide,
-          styleGuidePdfBase64,
-          styleGuidePdfName: styleGuidePdf?.name,
           fileName: file.name,
+          styleGuide,
+          styleGuidePdfUrl,
+          styleGuidePdfName: styleGuidePdf?.name,
         },
       });
       if (!res.ok) {
@@ -130,7 +185,8 @@ function Index() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
-      setLoading(false);
+      setStage("idle");
+      setUploadPct(0);
     }
   }, [file, sizeOk, pdfSizeOk, styleGuide, styleGuidePdf, transcribe]);
 
@@ -141,20 +197,30 @@ function Index() {
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const stageLabel =
+    stage === "uploading-media"
+      ? "Uploading media…"
+      : stage === "uploading-pdf"
+        ? "Uploading style guide…"
+        : stage === "transcribing"
+          ? "Transcribing — analyzing the full file…"
+          : "";
+
   return (
     <main className="min-h-screen bg-gradient-to-b from-background via-background to-muted/30">
       <div className="mx-auto max-w-5xl px-6 py-12 md:py-20">
         <header className="mb-10 text-center">
           <div className="inline-flex items-center gap-2 rounded-full border bg-card px-3 py-1 text-xs text-muted-foreground">
             <Wand2 className="h-3.5 w-3.5" />
-            AI-powered transcription
+            AI-powered transcription · up to {formatBytes(MAX_BYTES)}
           </div>
           <h1 className="mt-4 text-balance text-4xl font-semibold tracking-tight md:text-5xl">
             Transcribe to your own style guide
           </h1>
           <p className="mx-auto mt-3 max-w-xl text-pretty text-muted-foreground">
-            Drop in an audio or video file and the rules you write by. Get back
-            a transcript that already sounds like you.
+            Drop in audio or video and a PDF style guide. The model listens
+            end-to-end and returns a thorough, accurate transcript formatted to
+            your rules.
           </p>
         </header>
 
@@ -203,7 +269,8 @@ function Index() {
                       Click or drop audio / video
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      mp3, wav, m4a, mp4, mov, webm — up to {formatBytes(MAX_BYTES)}
+                      mp3, wav, m4a, mp4, mov, webm — up to{" "}
+                      {formatBytes(MAX_BYTES)}
                     </p>
                   </div>
                 </>
@@ -300,13 +367,13 @@ function Index() {
           <Button
             size="lg"
             onClick={onSubmit}
-            disabled={loading || !file || !sizeOk}
-            className="min-w-[220px]"
+            disabled={loading || !file || !sizeOk || !pdfSizeOk}
+            className="min-w-[240px]"
           >
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Transcribing…
+                {stage === "transcribing" ? "Transcribing…" : "Uploading…"}
               </>
             ) : (
               <>
@@ -315,15 +382,23 @@ function Index() {
               </>
             )}
           </Button>
+          {loading && (
+            <div className="w-full max-w-md space-y-2">
+              <p className="text-center text-xs text-muted-foreground">
+                {stageLabel}
+              </p>
+              {stage !== "transcribing" && <Progress value={uploadPct} />}
+              {stage === "transcribing" && (
+                <p className="text-center text-xs text-muted-foreground">
+                  Long files can take several minutes — the model is listening
+                  end-to-end for full accuracy.
+                </p>
+              )}
+            </div>
+          )}
           {error && (
             <p className="text-sm text-destructive" role="alert">
               {error}
-            </p>
-          )}
-          {loading && (
-            <p className="text-xs text-muted-foreground">
-              This can take a minute for longer files — the model is listening
-              end-to-end.
             </p>
           )}
         </div>

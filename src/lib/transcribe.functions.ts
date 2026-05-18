@@ -4,12 +4,12 @@ import { z } from "zod";
 import { createLovableAiGatewayProvider } from "./ai-gateway";
 
 const inputSchema = z.object({
-  fileBase64: z.string().min(1),
+  mediaUrl: z.string().url(),
   mediaType: z.string().min(1).max(100),
-  styleGuide: z.string().max(10000).default(""),
-  styleGuidePdfBase64: z.string().optional(),
-  styleGuidePdfName: z.string().max(255).optional(),
   fileName: z.string().max(255).optional(),
+  styleGuide: z.string().max(10000).default(""),
+  styleGuidePdfUrl: z.string().url().optional(),
+  styleGuidePdfName: z.string().max(255).optional(),
 });
 
 export const transcribeMedia = createServerFn({ method: "POST" })
@@ -28,52 +28,44 @@ export const transcribeMedia = createServerFn({ method: "POST" })
     const model = gateway("google/gemini-2.5-pro");
 
     const hasTextGuide = data.styleGuide.trim().length > 0;
-    const hasPdfGuide = !!data.styleGuidePdfBase64;
+    const hasPdfGuide = !!data.styleGuidePdfUrl;
 
     const styleInstructions = hasPdfGuide
-      ? "A style guide PDF is attached. Read it carefully and follow every rule it specifies when producing the transcript (tone, formatting, spelling, punctuation, what to omit, speaker labels, etc.)."
+      ? "A style guide PDF is attached. Read it carefully end-to-end and follow EVERY rule it specifies (tone, formatting, spelling, punctuation, what to omit, speaker labels, capitalization, numbers, abbreviations, etc.)."
       : hasTextGuide
         ? `Follow this style guide strictly when producing the transcript:\n\n${data.styleGuide.trim()}`
         : "Produce a clean, faithful transcript with proper punctuation and paragraph breaks.";
 
     const system = [
-      "You are an expert transcriptionist.",
-      "Transcribe the spoken content from the supplied audio or video file verbatim, then format it according to the user's style guide.",
-      "Preserve speaker meaning. Use speaker labels (Speaker 1, Speaker 2, ...) only if multiple speakers are clearly distinguishable.",
+      "You are an elite professional transcriptionist with native-level fluency.",
+      "Your job: produce a verbatim, 100% accurate transcript of the supplied audio or video file.",
+      "Listen critically to the ENTIRE file end-to-end. Do not summarize, paraphrase, or omit any spoken content unless the style guide instructs you to.",
+      "Be exact with names, numbers, technical terms, and quoted material. If a phrase is unclear, mark it as [inaudible] rather than guess.",
+      "Use speaker labels (Speaker 1, Speaker 2, ...) when multiple speakers are clearly distinguishable; use the speaker's actual name if it is stated in the audio.",
+      "After drafting, mentally re-check the transcript against the audio for typos, missed words, and style-guide violations before finalizing.",
       "Return ONLY the final transcript text — no preamble, no commentary, no markdown code fences.",
       styleInstructions,
     ].join("\n\n");
 
-    let mediaBuffer: Buffer;
-    let pdfBuffer: Buffer | null = null;
-    try {
-      mediaBuffer = Buffer.from(data.fileBase64, "base64");
-      if (data.styleGuidePdfBase64) {
-        pdfBuffer = Buffer.from(data.styleGuidePdfBase64, "base64");
-      }
-    } catch {
-      return { ok: false as const, error: "Invalid file encoding." };
-    }
-
     const userContent: Array<
       | { type: "text"; text: string }
-      | { type: "file"; data: Buffer; mediaType: string }
+      | { type: "file"; data: URL; mediaType: string }
     > = [
       {
         type: "text",
-        text: `Transcribe this ${data.mediaType.startsWith("video") ? "video" : "audio"} file${data.fileName ? ` (${data.fileName})` : ""}${hasPdfGuide ? `, strictly following the attached style guide PDF${data.styleGuidePdfName ? ` (${data.styleGuidePdfName})` : ""}` : " following the style guide"}.`,
+        text: `Transcribe this ${data.mediaType.startsWith("video") ? "video" : "audio"} file${data.fileName ? ` (${data.fileName})` : ""}${hasPdfGuide ? `, strictly following the attached style guide PDF${data.styleGuidePdfName ? ` (${data.styleGuidePdfName})` : ""}` : " following the style guide"}. Be thorough and 100% accurate.`,
       },
       {
         type: "file",
-        data: mediaBuffer,
+        data: new URL(data.mediaUrl),
         mediaType: data.mediaType,
       },
     ];
 
-    if (pdfBuffer) {
+    if (data.styleGuidePdfUrl) {
       userContent.push({
         type: "file",
-        data: pdfBuffer,
+        data: new URL(data.styleGuidePdfUrl),
         mediaType: "application/pdf",
       });
     }
