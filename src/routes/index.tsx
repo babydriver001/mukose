@@ -98,6 +98,7 @@ function Index() {
   const [styleGuide, setStyleGuide] = useState("");
   const [styleGuidePdf, setStyleGuidePdf] = useState<File | null>(null);
   const [transcript, setTranscript] = useState("");
+  const [analysis, setAnalysis] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [stage, setStage] = useState<
     "idle" | "uploading-media" | "uploading-pdf" | "transcribing"
@@ -105,6 +106,7 @@ function Index() {
   const [uploadPct, setUploadPct] = useState(0);
   const [copied, setCopied] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [showAnalysis, setShowAnalysis] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
 
