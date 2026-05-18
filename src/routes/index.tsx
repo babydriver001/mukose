@@ -207,7 +207,9 @@ function Index() {
       : stage === "uploading-pdf"
         ? "Uploading style guide…"
         : stage === "transcribing"
-          ? "Transcribing — analyzing the full file…"
+          ? styleGuidePdf
+            ? "Reading the style guide page by page, then transcribing — this can take several minutes…"
+            : "Transcribing — analysing the full file…"
           : "";
 
   return (
