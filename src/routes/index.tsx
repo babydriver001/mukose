@@ -68,10 +68,12 @@ async function uploadToStorage(
   onProgress: (pct: number) => void,
 ): Promise<string> {
   const key = randomKey(file);
-  // supabase-js v2 upload doesn't expose progress; do an indeterminate spin then jump to 100.
-  onProgress(5);
+  // supabase-js v2 upload doesn't expose granular progress; show an indeterminate climb then jump to 100.
+  let pct = 5;
+  onProgress(pct);
   const tick = setInterval(() => {
-    onProgress((p) => Math.min(p + 3, 90) as never as number);
+    pct = Math.min(pct + 3, 90);
+    onProgress(pct);
   }, 400);
   try {
     const { error } = await supabase.storage
