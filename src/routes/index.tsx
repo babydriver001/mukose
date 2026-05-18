@@ -156,6 +156,7 @@ function Index() {
     }
     setError(null);
     setTranscript("");
+    setAnalysis(null);
     setUploadPct(0);
     try {
       setStage("uploading-media");
@@ -183,6 +184,7 @@ function Index() {
         setError(res.error);
       } else {
         setTranscript(res.transcript);
+        setAnalysis(res.styleGuideAnalysis ?? null);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong.");
